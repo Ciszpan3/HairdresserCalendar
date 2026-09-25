@@ -22,3 +22,7 @@ npm run dev
 ```
 
 Dane wizyt pozostają w Supabase, więc nie trzeba ich eksportować ani kopiować ręcznie. Plik `.env.local` jest ignorowany przez Git i nie powinien być udostępniany publicznie.
+
+## Szybkie uruchamianie na Windows
+
+Możesz uruchomić plik `start-hairdresser-calendar.bat` dwuklikiem. Otworzy PowerShell, przejdzie do folderu projektu na pulpicie i wykona `npm.cmd run dev`. Następnie otwórz `http://localhost:5173` w przeglądarce.
