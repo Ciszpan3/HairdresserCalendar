@@ -10,7 +10,9 @@ Prywatny terminarz wizyt dla jednoosobowego salonu fryzjerskiego.
 4. Skopiuj `.env.example` do `.env.local` i wpisz `Project URL` oraz `Publishable key`.
 5. Uruchom `npm install`, a następnie `npm run dev`.
 
-Bez zmiennych Supabase aplikacja działa w trybie lokalnym: dane są przechowywane w localStorage, dzięki czemu można od razu przetestować cały interfejs. Po uzupełnieniu `.env.local` logowanie, odczyt, dodawanie, edycja, usuwanie i przesuwanie wizyt korzystają z Supabase.
+Jeśli baza była skonfigurowana przed dodaniem książki klientów, uruchom jednorazowo zawartość pliku `db/migrations/002_clients.sql` w Supabase SQL Editorze. Nie usuwa on istniejących wizyt i można go bezpiecznie wykonać ponownie.
+
+Do działania aplikacji wymagane są zmienne Supabase w `.env.local`. Logowanie, odczyt, dodawanie, edycja, usuwanie i przesuwanie wizyt korzystają z tego samego projektu Supabase na każdym komputerze.
 
 ## Przeniesienie na drugi komputer
 
@@ -21,7 +23,7 @@ npm install
 npm run dev
 ```
 
-Dane wizyt pozostają w Supabase, więc nie trzeba ich eksportować ani kopiować ręcznie. Plik `.env.local` jest ignorowany przez Git i nie powinien być udostępniany publicznie.
+Dane wizyt i klientów pozostają w Supabase, więc nie trzeba ich eksportować ani kopiować ręcznie. Katalog usług i kolory znajdują się w kodzie projektu. Plik `.env.local` jest ignorowany przez Git i nie powinien być udostępniany publicznie.
 
 ## Szybkie uruchamianie na Windows
 
