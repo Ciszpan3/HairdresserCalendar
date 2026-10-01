@@ -99,11 +99,16 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+.input, .select { width:100%; min-width:0; }
 .calendar-scroll { scrollbar-width: thin; scrollbar-color:#d5d8df transparent; }
 .calendar-grid { min-width:760px; }
 .calendar-hours { background:linear-gradient(to bottom,transparent 59px,#eef0f3 60px); background-size:100% 60px; }
 .day-column { background:repeating-linear-gradient(to bottom,transparent 0,transparent 29px,#f1f2f5 30px,transparent 31px,transparent 59px,#e5e8ed 60px); }
-.appointment { transition:box-shadow .15s,transform .15s; }
+.appointment { transition:box-shadow .15s,transform .15s,opacity .15s; }
 .appointment:hover { box-shadow:0 7px 18px rgba(44,39,71,.18); transform:translateY(-1px); z-index:30; }
 .modal-backdrop { animation:fade .16s ease-out; } @keyframes fade { from{opacity:0}to{opacity:1} }
-@media(max-width:700px){.calendar-grid{min-width:0}.mobile-hide{display:none}}
+@media(max-width:700px){
+  .calendar-grid{min-width:0}
+  .mobile-hide{display:none}
+  .overlap-panel{left:12px!important;right:12px!important;top:auto!important;bottom:12px!important;width:auto!important;max-height:min(70vh,520px)}
+}

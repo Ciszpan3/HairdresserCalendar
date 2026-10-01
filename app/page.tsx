@@ -30,10 +30,14 @@ const localStart = (date: string, time: string) => `${date}T${time}:00`;
 const currency = (value: number) => `${new Intl.NumberFormat("pl-PL", { maximumFractionDigits: 2 }).format(value)} zł`;
 const formatDate = (value: string | Date, options: Intl.DateTimeFormatOptions = { day: "2-digit", month: "2-digit", year: "numeric" }) =>
   new Intl.DateTimeFormat("pl-PL", options).format(new Date(value));
-const normalizePhone = (value: string) => value.replace(/\D/g, "");
+const normalizePhone = (value: string) => {
+  const digits = value.replace(/\D/g, "");
+  return digits.length === 11 && digits.startsWith("48") ? digits.slice(2) : digits;
+};
 
 const emptyForm = (date: string, time = "09:00"): AppointmentFormValues => ({
   title: "",
+  employee_name: "",
   client_first_name: "",
   client_last_name: "",
   phone: "",
@@ -133,6 +137,7 @@ export default function Home() {
       duration_minutes: 60,
       price: 0,
       notes: null,
+      employee_name: null,
     });
   };
 
@@ -276,13 +281,81 @@ function Calendar({ selectedDate, view, days, appointments, today, onNew, onPick
   if (view === "month") return <Month appointments={appointments} selectedDate={selectedDate} onPick={onPick} />;
   const visibleDays = view === "day" ? [selectedDate] : days;
   const columns = `58px repeat(${visibleDays.length}, minmax(100px, 1fr))`;
-  return <div className="calendar-scroll h-[calc(100vh-145px)] min-h-[520px] overflow-auto"><div className={view === "week" ? "calendar-grid" : "min-w-[360px]"}><div className="sticky top-0 z-20 grid border-b border-slate-200 bg-white" style={{ gridTemplateColumns: columns }}><div className="h-14" />{visibleDays.map((day) => <div key={isoDate(day)} className={`h-14 border-l border-slate-100 px-2 pt-2 text-center ${isoDate(day) === today ? "bg-[#f3f1fb]" : ""}`}><div className="text-[11px] uppercase text-slate-400">{formatDate(day, { weekday: "short" })}</div><div className={`mt-0.5 text-lg font-bold ${isoDate(day) === today ? "text-[#665c9a]" : ""}`}>{day.getDate()}</div></div>)}</div><div className="grid" style={{ gridTemplateColumns: columns }}><div className="calendar-hours">{Array.from({ length: 18 }, (_, index) => <div key={index} className="-mt-2 h-[60px] pr-2 text-right text-[11px] text-slate-400">{pad(index + 5)}:00</div>)}</div>{visibleDays.map((day) => <div key={isoDate(day)} data-date={isoDate(day)} className={`day-column relative h-[1080px] border-l border-slate-100 ${isoDate(day) === today ? "bg-[#fcfbff]" : ""}`} onClick={(event) => { if (event.currentTarget !== event.target) return; const rect = event.currentTarget.getBoundingClientRect(); const minutes = Math.max(0, Math.round((((event.clientY - rect.top) / 60) * 60) / 15) * 15); onNew(isoDate(day), `${pad(5 + Math.floor(minutes / 60))}:${pad(minutes % 60)}`); }}>{appointments.filter((appointment) => appointment.start_at.slice(0, 10) === isoDate(day)).map((appointment) => <AppointmentCard key={appointment.id} appointment={appointment} onPick={onPick} onMove={onMove} />)}</div>)}</div></div></div>;
+  return <div className="calendar-scroll h-[calc(100vh-145px)] min-h-[520px] overflow-auto"><div className={view === "week" ? "calendar-grid" : "min-w-[360px]"}><div className="sticky top-0 z-20 grid border-b border-slate-200 bg-white" style={{ gridTemplateColumns: columns }}><div className="h-14" />{visibleDays.map((day) => <div key={isoDate(day)} className={`h-14 border-l border-slate-100 px-2 pt-2 text-center ${isoDate(day) === today ? "bg-[#f3f1fb]" : ""}`}><div className="text-[11px] uppercase text-slate-400">{formatDate(day, { weekday: "short" })}</div><div className={`mt-0.5 text-lg font-bold ${isoDate(day) === today ? "text-[#665c9a]" : ""}`}>{day.getDate()}</div></div>)}</div><div className="grid" style={{ gridTemplateColumns: columns }}><div className="calendar-hours">{Array.from({ length: 18 }, (_, index) => <div key={index} className="-mt-2 h-[60px] pr-2 text-right text-[11px] text-slate-400">{pad(index + 5)}:00</div>)}</div>{visibleDays.map((day) => <DayColumn key={isoDate(day)} day={day} today={today} appointments={appointments.filter((appointment) => appointment.start_at.slice(0, 10) === isoDate(day))} onNew={onNew} onPick={onPick} onMove={onMove} />)}</div></div></div>;
 }
 
-function AppointmentCard({ appointment, onPick, onMove }: { appointment: Appointment; onPick: (appointment: Appointment) => void; onMove: (appointment: Appointment, start: string) => void }) {
+type AppointmentLayout = {
+  appointment: Appointment;
+  column: number;
+  columnCount: number;
+  groupId: string;
+  group: Appointment[];
+};
+
+function appointmentMinutes(appointment: Appointment) {
+  const start = new Date(appointment.start_at);
+  return start.getHours() * 60 + start.getMinutes();
+}
+
+function layoutOverlappingAppointments(appointments: Appointment[], date: string): AppointmentLayout[] {
+  const sorted = [...appointments].sort((a, b) => appointmentMinutes(a) - appointmentMinutes(b));
+  const groups: Appointment[][] = [];
+  let current: Appointment[] = [];
+  let latestEnd = -1;
+  for (const appointment of sorted) {
+    const start = appointmentMinutes(appointment);
+    const end = start + appointment.duration_minutes;
+    if (current.length && start >= latestEnd) {
+      groups.push(current);
+      current = [];
+      latestEnd = -1;
+    }
+    current.push(appointment);
+    latestEnd = Math.max(latestEnd, end);
+  }
+  if (current.length) groups.push(current);
+
+  return groups.flatMap((group, groupIndex) => {
+    const columnEnds: number[] = [];
+    const positioned = group.map((appointment) => {
+      const start = appointmentMinutes(appointment);
+      const freeColumn = columnEnds.findIndex((end) => end <= start);
+      const column = freeColumn === -1 ? columnEnds.length : freeColumn;
+      columnEnds[column] = start + appointment.duration_minutes;
+      return { appointment, column };
+    });
+    const columnCount = Math.max(1, columnEnds.length);
+    const groupId = `${date}-${groupIndex}`;
+    return positioned.map(({ appointment, column }) => ({ appointment, column, columnCount, groupId, group }));
+  });
+}
+
+function DayColumn({ day, today, appointments, onNew, onPick, onMove }: { day: Date; today: string; appointments: Appointment[]; onNew: (date?: string, time?: string) => void; onPick: (appointment: Appointment) => void; onMove: (appointment: Appointment, start: string) => void }) {
+  const date = isoDate(day);
+  const [activeGroup, setActiveGroup] = useState<string | null>(null);
+  const [panelPosition, setPanelPosition] = useState({ x: 24, y: 160 });
+  const layout = useMemo(() => layoutOverlappingAppointments(appointments, date), [appointments, date]);
+  const active = layout.find((item) => item.groupId === activeGroup);
+  const focusGroup = (groupId: string, x?: number, y?: number) => {
+    setActiveGroup(groupId);
+    if (x !== undefined && y !== undefined) setPanelPosition({ x, y });
+  };
+  return <div data-date={date} className={`day-column relative h-[1080px] border-l border-slate-100 ${date === today ? "bg-[#fcfbff]" : ""}`} onMouseLeave={() => setActiveGroup(null)} onClick={(event) => { if (event.currentTarget !== event.target) return; const rect = event.currentTarget.getBoundingClientRect(); const minutes = Math.max(0, Math.round((((event.clientY - rect.top) / 60) * 60) / 15) * 15); onNew(date, `${pad(5 + Math.floor(minutes / 60))}:${pad(minutes % 60)}`); }}>
+    {layout.map((item) => <AppointmentCard key={item.appointment.id} {...item} activeGroup={activeGroup} onGroupFocus={focusGroup} onPick={onPick} onMove={onMove} />)}
+    {active && active.group.length > 1 && <OverlapPanel appointments={active.group} position={panelPosition} onPick={onPick} onClose={() => setActiveGroup(null)} />}
+  </div>;
+}
+
+function AppointmentCard({ appointment, column, columnCount, groupId, group, activeGroup, onGroupFocus, onPick, onMove }: AppointmentLayout & { activeGroup: string | null; onGroupFocus: (groupId: string, x?: number, y?: number) => void; onPick: (appointment: Appointment) => void; onMove: (appointment: Appointment, start: string) => void }) {
   const start = new Date(appointment.start_at);
   const top = (start.getHours() - 5) * 60 + start.getMinutes();
-  return <div draggable onDragEnd={(event) => { const column = event.currentTarget.parentElement; if (!column) return; const rect = column.getBoundingClientRect(); const minutes = Math.max(0, Math.round((((event.clientY - rect.top) / 60) * 60) / 15) * 15); const date = column.getAttribute("data-date"); if (date) onMove(appointment, localStart(date, `${pad(5 + Math.floor(minutes / 60))}:${pad(minutes % 60)}`)); }} onClick={(event) => { event.stopPropagation(); onPick(appointment); }} className="appointment absolute left-1 right-1 cursor-pointer overflow-hidden rounded-lg px-2 py-1.5 text-white" style={{ top: `${top}px`, height: `${Math.max(28, appointment.duration_minutes)}px`, background: getServiceColor(appointment.title) }}><div className="truncate text-[12px] font-bold">{appointment.client_first_name} {appointment.client_last_name}</div><div className="truncate text-[11px] opacity-90">{appointment.title}</div>{appointment.duration_minutes >= 60 && <div className="text-[11px] opacity-90">{currency(appointment.price)}</div>}</div>;
+  const dimmed = activeGroup !== null && activeGroup !== groupId;
+  return <div draggable onMouseEnter={(event) => group.length > 1 && onGroupFocus(groupId, event.clientX, event.clientY)} onDragEnd={(event) => { const dayColumn = event.currentTarget.parentElement; if (!dayColumn) return; const rect = dayColumn.getBoundingClientRect(); const minutes = Math.max(0, Math.round((((event.clientY - rect.top) / 60) * 60) / 15) * 15); const date = dayColumn.getAttribute("data-date"); if (date) onMove(appointment, localStart(date, `${pad(5 + Math.floor(minutes / 60))}:${pad(minutes % 60)}`)); }} onClick={(event) => { event.stopPropagation(); if (group.length > 1 && window.matchMedia("(hover: none)").matches) { onGroupFocus(groupId); return; } onPick(appointment); }} className={`appointment absolute cursor-pointer overflow-hidden rounded-lg px-2 py-1.5 text-white ${dimmed ? "opacity-35" : "opacity-100"}`} style={{ top: `${top}px`, height: `${Math.max(28, appointment.duration_minutes)}px`, left: `calc(${(column / columnCount) * 100}% + 3px)`, width: `calc(${100 / columnCount}% - 6px)`, background: getServiceColor(appointment.title) }}><div className="truncate text-[12px] font-bold">{appointment.client_first_name} {appointment.client_last_name}</div><div className="truncate text-[11px] opacity-90">{appointment.title}</div>{appointment.employee_name && appointment.duration_minutes >= 45 && <div className="truncate text-[10px] opacity-80">{appointment.employee_name}</div>}{appointment.duration_minutes >= 60 && <div className="text-[11px] opacity-90">{currency(appointment.price)}</div>}{group.length > 1 && column === 0 && <span className="absolute bottom-1 right-1 rounded bg-black/25 px-1 text-[9px]">+{group.length} równoczesne</span>}</div>;
+}
+
+function OverlapPanel({ appointments, position, onPick, onClose }: { appointments: Appointment[]; position: { x: number; y: number }; onPick: (appointment: Appointment) => void; onClose: () => void }) {
+  const placeOnLeft = typeof window !== "undefined" && position.x > window.innerWidth - 330;
+  return <div className="overlap-panel fixed z-50 w-[300px] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl" style={{ top: Math.max(84, position.y - 36), left: placeOnLeft ? Math.max(12, position.x - 312) : position.x + 12 }} onClick={(event) => event.stopPropagation()}><div className="flex items-center justify-between border-b border-slate-100 px-3 py-2"><div><div className="text-sm font-bold">Równoczesne wizyty</div><div className="text-[11px] text-slate-500">Liczba wizyt: {appointments.length}</div></div><button type="button" aria-label="Zamknij panel" onClick={onClose} className="grid h-7 w-7 place-items-center rounded-md text-slate-400 hover:bg-slate-100"><X size={15} /></button></div><div className="max-h-72 overflow-y-auto p-1.5">{appointments.map((appointment) => { const start = new Date(appointment.start_at); const end = new Date(start.getTime() + appointment.duration_minutes * 60_000); return <button type="button" key={appointment.id} onClick={() => onPick(appointment)} className="block w-full rounded-lg p-2.5 text-left hover:bg-slate-50"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="truncate text-sm font-bold">{appointment.client_first_name} {appointment.client_last_name}</div><div className="truncate text-xs text-slate-600">{appointment.title}</div><div className="mt-1 text-[11px] font-medium text-[#665c9a]">{appointment.employee_name || "Pracownik nieprzypisany"}</div></div><div className="shrink-0 text-right"><div className="text-xs font-semibold">{start.toLocaleTimeString("pl-PL", { hour: "2-digit", minute: "2-digit" })}–{end.toLocaleTimeString("pl-PL", { hour: "2-digit", minute: "2-digit" })}</div><div className="mt-1 text-xs text-slate-500">{currency(appointment.price)}</div></div></div></button>; })}</div></div>;
 }
 
 function Month({ appointments, selectedDate, onPick }: { appointments: Appointment[]; selectedDate: Date; onPick: (appointment: Appointment) => void }) {
@@ -318,9 +391,10 @@ function AppointmentModal({ initial, selectedDate, clients, onClose, onSave, onD
     resolver: zodResolver(appointmentSchema),
     defaultValues: initial ? {
       title: initial.title,
+      employee_name: initial.employee_name ?? "",
       client_first_name: initial.client_first_name,
       client_last_name: initial.client_last_name,
-      phone: initial.phone ?? "",
+      phone: normalizePhone(initial.phone ?? "").slice(0, 9),
       date: isoDate(start),
       time: `${pad(start.getHours())}:${pad(start.getMinutes())}`,
       duration_hours: Math.floor(totalDuration / 60),
@@ -340,6 +414,7 @@ function AppointmentModal({ initial, selectedDate, clients, onClose, onSave, onD
   const serviceMatches = services.filter((service) => !serviceQuery || normalizeSearch(service.title).includes(serviceQuery)).slice(0, 8);
   const clientQuery = normalizeSearch(`${firstName} ${lastName} ${phone}`);
   const phoneQuery = normalizePhone(phone);
+  const existingClient = clients.find((client) => normalizePhone(client.phone) === phoneQuery);
   const clientMatches = clients.filter((client) => !clientQuery || normalizeSearch(`${client.first_name} ${client.last_name ?? ""} ${client.phone}`).includes(clientQuery) || (phoneQuery && normalizePhone(client.phone).includes(phoneQuery))).slice(0, 8);
   const titleField = register("title");
   const firstNameField = register("client_first_name");
@@ -357,7 +432,7 @@ function AppointmentModal({ initial, selectedDate, clients, onClose, onSave, onD
   const chooseClient = (client: Client) => {
     setValue("client_first_name", client.first_name, { shouldDirty: true, shouldValidate: true });
     setValue("client_last_name", client.last_name ?? "", { shouldDirty: true });
-    setValue("phone", client.phone, { shouldDirty: true });
+    setValue("phone", normalizePhone(client.phone).slice(0, 9), { shouldDirty: true, shouldValidate: true });
     setClientOpen(false);
   };
   const applyPreset = (value: string) => {
@@ -369,20 +444,21 @@ function AppointmentModal({ initial, selectedDate, clients, onClose, onSave, onD
   const submit = (values: AppointmentFormValues) => onSave({
     id: initial?.id ?? "",
     title: values.title.trim(),
+    employee_name: values.employee_name?.trim() || null,
     client_first_name: values.client_first_name.trim(),
     client_last_name: values.client_last_name?.trim() ?? "",
-    phone: values.phone?.trim() || null,
+    phone: normalizePhone(values.phone ?? "") || null,
     start_at: localStart(values.date, values.time),
     duration_minutes: Number(values.duration_hours) * 60 + Number(values.duration_extra_minutes),
     price: Number(values.price),
     notes: values.notes?.trim() || null,
-    client_id: initial?.client_id ?? null,
+    client_id: existingClient?.id ?? (normalizePhone(initial?.phone ?? "") === phoneQuery ? initial?.client_id ?? null : null),
     created_at: initial?.created_at,
   });
 
-  return <div className="modal-backdrop fixed inset-0 z-50 grid place-items-center bg-slate-900/35 p-3"><div className="max-h-[calc(100vh-24px)] w-full max-w-[620px] overflow-y-auto rounded-2xl bg-white shadow-2xl"><div className="flex items-center justify-between border-b border-slate-200 px-5 py-4 md:px-6"><div><h2 className="text-lg font-bold">{isEdit ? "Edytuj wizytę" : "Nowa wizyta"}</h2><p className="mt-1 text-sm text-slate-500">Szczegóły usługi i klienta</p></div><button type="button" onClick={requestClose} className="text-slate-400 hover:text-slate-700"><X size={20} /></button></div><form onSubmit={handleSubmit(submit)} className="space-y-4 p-5 md:p-6"><div className="grid gap-3 md:grid-cols-[1fr_150px]"><Field label="Usługa" error={errors.title?.message}><div className="relative"><input autoFocus {...titleField} onFocus={() => setServiceOpen(true)} onBlur={() => setTimeout(() => setServiceOpen(false), 120)} onChange={(event) => { titleField.onChange(event); setServiceOpen(true); }} className="input pr-10" placeholder="Zacznij wpisywać nazwę…" /><Search size={16} className="absolute right-3 top-3 text-slate-400" />{serviceOpen && serviceMatches.length > 0 && <div className="absolute left-0 right-0 top-[calc(100%+6px)] z-30 max-h-64 overflow-y-auto rounded-xl border border-slate-200 bg-white p-1 shadow-xl">{serviceMatches.map((service) => <button key={service.id} type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => chooseService(service)} className="flex w-full items-center gap-3 rounded-lg p-2.5 text-left hover:bg-slate-50"><span className="h-3 w-3 shrink-0 rounded-full" style={{ background: service.color }} /><span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold">{service.title}</span><span className="text-xs text-slate-500">{service.group}</span></span><span className="shrink-0 text-sm font-semibold">{formatServicePrice(service)}</span></button>)}</div>}</div></Field><Field label="Cena (PLN)" error={errors.price?.message}><input type="number" step="0.01" {...register("price")} className="input" placeholder="0" /></Field></div><div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3"><div className="mb-2 flex items-center justify-between"><span className="text-xs font-semibold text-slate-600">Klient</span>{clients.length > 0 && <span className="text-[11px] text-slate-400">Wpisz imię, nazwisko lub telefon</span>}</div><div className="relative grid gap-3 md:grid-cols-3"><Field label="Imię" error={errors.client_first_name?.message}><input {...firstNameField} onFocus={() => setClientOpen(true)} onBlur={() => setTimeout(() => setClientOpen(false), 120)} onChange={(event) => { firstNameField.onChange(event); setClientOpen(true); }} className="input bg-white" placeholder="Anna" /></Field><Field label="Nazwisko"><input {...lastNameField} onFocus={() => setClientOpen(true)} onBlur={() => setTimeout(() => setClientOpen(false), 120)} onChange={(event) => { lastNameField.onChange(event); setClientOpen(true); }} className="input bg-white" placeholder="Opcjonalnie" /></Field><Field label="Telefon"><input {...phoneField} onFocus={() => setClientOpen(true)} onBlur={() => setTimeout(() => setClientOpen(false), 120)} onChange={(event) => { phoneField.onChange(event); setClientOpen(true); }} className="input bg-white" placeholder="Opcjonalnie" /></Field>{clientOpen && clientMatches.length > 0 && (firstName || lastName || phone) && <div className="absolute left-0 right-0 top-[calc(100%+6px)] z-20 max-h-56 overflow-y-auto rounded-xl border border-slate-200 bg-white p-1 shadow-xl">{clientMatches.map((client) => <button key={client.id} type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => chooseClient(client)} className="flex w-full items-center justify-between rounded-lg p-2.5 text-left hover:bg-slate-50"><span><span className="block text-sm font-semibold">{client.first_name} {client.last_name}</span><span className="text-xs text-slate-500">{client.phone}</span></span><span className="text-xs font-medium text-[#665c9a]">Wybierz</span></button>)}</div>}</div>{phone && firstName && <p className="mt-2 text-[11px] text-slate-500">Klient zostanie zapamiętany po zapisaniu wizyty.</p>}</div><div className="grid gap-3 md:grid-cols-2"><Field label="Data"><input type="date" {...register("date")} className="input" /></Field><Field label="Godzina rozpoczęcia"><input type="time" {...register("time")} className="input" /></Field></div><div className="rounded-xl border border-slate-200 p-3"><div className="grid items-end gap-3 sm:grid-cols-[1fr_110px_110px]"><Field label="Szybki wybór"><select value={durationOptions.some((option) => option.value === minutesTotal) ? String(minutesTotal) : "custom"} onChange={(event) => applyPreset(event.target.value)} className="select"><option value="custom">Własny czas</option>{durationOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></Field><Field label="Godziny"><input type="number" min="0" max="12" {...register("duration_hours")} className="input" /></Field><Field label="Minuty" error={errors.duration_extra_minutes?.message}><input type="number" min="0" max="59" {...register("duration_extra_minutes")} className="input" /></Field></div><p className="mt-2 text-xs text-slate-500">Łącznie: <span className="font-semibold text-slate-700">{hours > 0 ? `${hours} godz. ` : ""}{extraMinutes} min</span></p></div><Field label="Notatka"><textarea {...register("notes")} className="input min-h-[76px] resize-none" placeholder="Opcjonalna notatka do wizyty…" /></Field><div className="flex items-center justify-between gap-3 pt-2">{isEdit ? <button type="button" onClick={() => confirm("Czy na pewno usunąć tę wizytę?") && onDelete(initial!.id)} className="flex items-center gap-2 text-sm font-semibold text-red-600"><Trash2 size={16} /> Usuń wizytę</button> : <span />}<div className="flex gap-2"><button type="button" onClick={requestClose} className="h-10 rounded-lg border border-slate-200 px-4 text-sm">Anuluj</button><button disabled={isSubmitting} className="h-10 rounded-lg bg-[#665c9a] px-5 text-sm font-semibold text-white disabled:opacity-60">{isSubmitting ? "Zapisywanie…" : isEdit ? "Zapisz zmiany" : "Zapisz wizytę"}</button></div></div></form></div></div>;
+  return <div className="modal-backdrop fixed inset-0 z-50 grid place-items-center bg-slate-900/35 p-3"><div className="max-h-[calc(100vh-24px)] w-full max-w-[620px] overflow-x-hidden overflow-y-auto rounded-2xl bg-white shadow-2xl"><div className="flex items-center justify-between border-b border-slate-200 px-5 py-4 md:px-6"><div><h2 className="text-lg font-bold">{isEdit ? "Edytuj wizytę" : "Nowa wizyta"}</h2><p className="mt-1 text-sm text-slate-500">Szczegóły usługi i klienta</p></div><button type="button" onClick={requestClose} className="text-slate-400 hover:text-slate-700"><X size={20} /></button></div><form onSubmit={handleSubmit(submit)} className="min-w-0 space-y-4 p-4 sm:p-5 md:p-6"><div className="grid min-w-0 gap-3 sm:grid-cols-[minmax(0,1fr)_120px]"><Field label="Usługa" error={errors.title?.message}><div className="relative min-w-0"><input autoFocus {...titleField} onFocus={() => setServiceOpen(true)} onBlur={() => setTimeout(() => setServiceOpen(false), 120)} onChange={(event) => { titleField.onChange(event); setServiceOpen(true); }} className="input pr-10" placeholder="Zacznij wpisywać nazwę…" /><Search size={16} className="absolute right-3 top-3 text-slate-400" />{serviceOpen && serviceMatches.length > 0 && <div className="absolute left-0 right-0 top-[calc(100%+6px)] z-30 max-h-64 overflow-y-auto rounded-xl border border-slate-200 bg-white p-1 shadow-xl">{serviceMatches.map((service) => <button key={service.id} type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => chooseService(service)} className="flex w-full min-w-0 items-center gap-3 rounded-lg p-2.5 text-left hover:bg-slate-50"><span className="h-3 w-3 shrink-0 rounded-full" style={{ background: service.color }} /><span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold">{service.title}</span><span className="text-xs text-slate-500">{service.group}</span></span><span className="shrink-0 text-sm font-semibold">{formatServicePrice(service)}</span></button>)}</div>}</div></Field><Field label="Cena (PLN)" error={errors.price?.message}><input type="number" step="0.01" min="0" {...register("price")} className="input" placeholder="0" /></Field></div><Field label="Pracownik"><input {...register("employee_name")} className="input" placeholder="Opcjonalnie, np. Anna" /></Field><div className="min-w-0 rounded-xl border border-slate-200 bg-slate-50/70 p-3"><div className="mb-3 flex flex-wrap items-center justify-between gap-1"><span className="text-xs font-semibold text-slate-600">Klient</span>{clients.length > 0 && <span className="text-[11px] text-slate-400">Wyszukaj imieniem, nazwiskiem lub telefonem</span>}</div><div className="relative min-w-0"><div className="grid min-w-0 gap-3 sm:grid-cols-2"><Field label="Imię" error={errors.client_first_name?.message}><input {...firstNameField} onFocus={() => setClientOpen(true)} onBlur={() => setTimeout(() => setClientOpen(false), 120)} onChange={(event) => { firstNameField.onChange(event); setClientOpen(true); }} className="input bg-white" placeholder="Anna" /></Field><Field label="Nazwisko"><input {...lastNameField} onFocus={() => setClientOpen(true)} onBlur={() => setTimeout(() => setClientOpen(false), 120)} onChange={(event) => { lastNameField.onChange(event); setClientOpen(true); }} className="input bg-white" placeholder="Opcjonalnie" /></Field><Field label="Telefon" error={errors.phone?.message}><input {...phoneField} inputMode="numeric" maxLength={9} onFocus={() => setClientOpen(true)} onBlur={() => setTimeout(() => setClientOpen(false), 120)} onChange={(event) => { setValue("phone", normalizePhone(event.target.value).slice(0, 9), { shouldDirty: true, shouldValidate: true }); setClientOpen(true); }} className="input bg-white" placeholder="9 cyfr" /></Field></div>{clientOpen && clientMatches.length > 0 && (firstName || lastName || phone) && <div className="absolute left-0 right-0 top-[calc(100%+6px)] z-20 max-h-56 overflow-y-auto rounded-xl border border-slate-200 bg-white p-1 shadow-xl">{clientMatches.map((client) => <button key={client.id} type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => chooseClient(client)} className="flex w-full min-w-0 items-center justify-between gap-3 rounded-lg p-2.5 text-left hover:bg-slate-50"><span className="min-w-0"><span className="block truncate text-sm font-semibold">{client.first_name} {client.last_name}</span><span className="text-xs text-slate-500">{client.phone}</span></span><span className="shrink-0 text-xs font-medium text-[#665c9a]">Wybierz</span></button>)}</div>}</div>{phoneQuery.length === 9 && firstName && !existingClient && <p className="mt-2 text-[11px] text-slate-500">Nowy klient zostanie zapamiętany po zapisaniu wizyty.</p>}</div><div className="grid min-w-0 gap-3 sm:grid-cols-2"><Field label="Data"><input type="date" {...register("date")} className="input" /></Field><Field label="Godzina rozpoczęcia"><input type="time" {...register("time")} className="input" /></Field></div><div className="min-w-0 rounded-xl border border-slate-200 p-3"><div className="grid min-w-0 items-end gap-3 sm:grid-cols-[minmax(0,1fr)_90px_90px]"><Field label="Szybki wybór"><select value={durationOptions.some((option) => option.value === minutesTotal) ? String(minutesTotal) : "custom"} onChange={(event) => applyPreset(event.target.value)} className="select"><option value="custom">Własny czas</option>{durationOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></Field><Field label="Godziny"><input type="number" min="0" max="12" {...register("duration_hours")} className="input" /></Field><Field label="Minuty" error={errors.duration_extra_minutes?.message}><input type="number" min="0" max="59" {...register("duration_extra_minutes")} className="input" /></Field></div><p className="mt-2 text-xs text-slate-500">Łącznie: <span className="font-semibold text-slate-700">{hours > 0 ? `${hours} godz. ` : ""}{extraMinutes} min</span></p></div><Field label="Notatka"><textarea {...register("notes")} className="input min-h-[76px] resize-none" placeholder="Opcjonalna notatka do wizyty…" /></Field><div className="flex flex-wrap items-center justify-between gap-3 pt-2">{isEdit ? <button type="button" onClick={() => confirm("Czy na pewno usunąć tę wizytę?") && onDelete(initial!.id)} className="flex items-center gap-2 text-sm font-semibold text-red-600"><Trash2 size={16} /> Usuń wizytę</button> : <span />}<div className="ml-auto flex gap-2"><button type="button" onClick={requestClose} className="h-10 rounded-lg border border-slate-200 px-4 text-sm">Anuluj</button><button disabled={isSubmitting} className="h-10 rounded-lg bg-[#665c9a] px-4 text-sm font-semibold text-white disabled:opacity-60">{isSubmitting ? "Zapisywanie…" : isEdit ? "Zapisz zmiany" : "Zapisz wizytę"}</button></div></div></form></div></div>;
 }
 
 function Field({ label, error, children }: { label: string; error?: string; children: React.ReactNode }) {
-  return <label className="block"><span className="mb-1.5 block text-xs font-semibold text-slate-600">{label}</span>{children}{error && <span className="mt-1 block text-xs text-red-600">{error}</span>}</label>;
+  return <label className="block min-w-0"><span className="mb-1.5 block text-xs font-semibold text-slate-600">{label}</span>{children}{error && <span className="mt-1 block text-xs text-red-600">{error}</span>}</label>;
 }

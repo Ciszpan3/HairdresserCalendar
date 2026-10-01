@@ -1,7 +1,8 @@
 export type Appointment = {
   id: string; title: string; client_first_name: string; client_last_name: string;
   phone?: string | null; start_at: string; duration_minutes: number; price: number;
-  notes?: string | null; client_id?: string | null; created_at?: string; updated_at?: string;
+  notes?: string | null; client_id?: string | null; employee_name?: string | null;
+  created_at?: string; updated_at?: string;
 };
 export type Client = {
   id: string; first_name: string; last_name?: string | null; phone: string;
