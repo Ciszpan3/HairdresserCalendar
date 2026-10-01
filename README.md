@@ -12,7 +12,7 @@ Prywatny terminarz wizyt dla jednoosobowego salonu fryzjerskiego.
 
 Jeśli baza była skonfigurowana przed dodaniem książki klientów, uruchom jednorazowo zawartość pliku `db/migrations/002_clients.sql` w Supabase SQL Editorze. Nie usuwa on istniejących wizyt i można go bezpiecznie wykonać ponownie.
 
-Po aktualizacji obsługi pracowników i telefonu uruchom również kolejno `db/migrations/003_employee_name.sql` oraz `db/migrations/004_phone_length.sql`.
+Po aktualizacji walidacji telefonu uruchom również `db/migrations/004_phone_length.sql`. Jeśli wcześniej została wykonana usunięta migracja pracowników, uruchom jednorazowo `db/migrations/005_remove_employee_name.sql`.
 
 Do działania aplikacji wymagane są zmienne Supabase w `.env.local`. Logowanie, odczyt, dodawanie, edycja, usuwanie i przesuwanie wizyt korzystają z tego samego projektu Supabase na każdym komputerze.
 

@@ -15,7 +15,6 @@ create table if not exists public.appointments (
   created_at timestamptz not null default now(), updated_at timestamptz not null default now()
 );
 alter table public.appointments add column if not exists client_id uuid references public.clients(id) on delete set null;
-alter table public.appointments add column if not exists employee_name text;
 do $$ begin
   if not exists (select 1 from pg_constraint where conname = 'appointments_phone_9_digits') then
     alter table public.appointments add constraint appointments_phone_9_digits check (phone is null or phone ~ '^[0-9]{9}$') not valid;
