@@ -100,6 +100,11 @@ body {
   font-family: Arial, Helvetica, sans-serif;
 }
 .input, .select { width:100%; min-width:0; }
+.modal-backdrop form > div:first-child > label:first-child > div > svg {
+  top:50%;
+  transform:translateY(-50%);
+  pointer-events:none;
+}
 .calendar-scroll { scrollbar-width: thin; scrollbar-color:#d5d8df transparent; }
 .calendar-grid { min-width:760px; }
 .calendar-hours { background:linear-gradient(to bottom,transparent 59px,#eef0f3 60px); background-size:100% 60px; }
