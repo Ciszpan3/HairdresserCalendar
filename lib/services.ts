@@ -10,7 +10,7 @@ export type ServiceDefinition = {
 const colors = {
   blue: "#1d4ed8",
   purple: "#6d28d9",
-  pink: "#be185d",
+  pink: "#c93d91",
   red: "#b91c1c",
   orange: "#c2410c",
   black: "#111827",
