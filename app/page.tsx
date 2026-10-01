@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
@@ -400,6 +400,9 @@ function AppointmentModal({ initial, selectedDate, clients, onClose, onSave, onD
       notes: initial.notes ?? "",
     } : emptyForm(isoDate(selectedDate)),
   });
+  useLayoutEffect(() => {
+    if (isEdit && document.activeElement instanceof HTMLElement) document.activeElement.blur();
+  }, [isEdit]);
   const [title = "", firstName = "", lastName = "", phone = "", durationHours = 0, durationExtraMinutes = 0] = useWatch({
     control,
     name: ["title", "client_first_name", "client_last_name", "phone", "duration_hours", "duration_extra_minutes"],
