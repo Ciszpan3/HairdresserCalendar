@@ -83,7 +83,7 @@ export const getServiceColor = (title: string) => {
   const partialColors = new Set(partialMatches.map((service) => service.color));
   const partialColor = partialColors.size === 1 ? partialMatches[0]?.color : undefined;
   const legacy = legacyColorRules.find((rule) => rule.matches(normalized));
-  const color = exact?.color ?? partialColor ?? legacy?.color ?? "#51477f";
+  const color = exact?.color ?? legacy?.color ?? partialColor ?? "#51477f";
   colorCache.set(normalized, color);
   return color;
 };

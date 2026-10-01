@@ -9,6 +9,7 @@ import {
   ChevronRight,
   History,
   LogOut,
+  Palette,
   Plus,
   Search,
   Sparkles,
@@ -23,6 +24,7 @@ import { isSupabaseConfigured, supabase } from "@/lib/supabase";
 import { durationOptions, type Appointment, type Client } from "@/lib/types";
 
 type CalendarView = "week" | "day" | "month";
+type AppView = CalendarView | "history" | "legend";
 
 const pad = (value: number) => String(value).padStart(2, "0");
 const isoDate = (date: Date) => `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
@@ -53,7 +55,7 @@ export default function Home() {
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [selectedDate, setSelectedDate] = useState(new Date());
-  const [view, setView] = useState<CalendarView | "history">("week");
+  const [view, setView] = useState<AppView>("week");
   const [modal, setModal] = useState<Appointment | null | false>(false);
   const [search, setSearch] = useState("");
   const [toast, setToast] = useState("");
@@ -222,14 +224,15 @@ export default function Home() {
       <div className="flex min-h-[calc(100vh-72px)]">
         <aside className="hidden w-[220px] shrink-0 flex-col border-r border-slate-200 bg-white p-5 lg:flex">
           <div className="mb-4 text-[11px] font-bold uppercase tracking-[.14em] text-slate-400">Workspace</div>
-          <Nav active={view !== "history"} icon={<CalendarDays size={18} />} label="Kalendarz" onClick={() => setView("week")} />
+          <Nav active={view !== "history" && view !== "legend"} icon={<CalendarDays size={18} />} label="Kalendarz" onClick={() => setView("week")} />
           <Nav active={view === "history"} icon={<History size={18} />} label="Historia wizyt" onClick={() => setView("history")} />
+          <Nav active={view === "legend"} icon={<Palette size={18} />} label="Legenda kolorów" onClick={() => setView("legend")} />
           <div className="mt-auto rounded-2xl bg-[#f0eef8] p-4"><Sparkles size={18} className="mb-3 text-[#665c9a]" /><div className="text-sm font-semibold">Dzień dobry!</div><div className="mt-1 text-xs text-slate-500">Twój terminarz jest gotowy na dziś.</div></div>
         </aside>
         <main className="min-w-0 flex-1">
           <div className="mx-auto max-w-[1480px]">
             {view === "history" && <div className="flex items-start justify-between gap-4 p-4 pb-0 md:p-7 md:pb-0"><div><p className="text-sm text-slate-500">{formatDate(new Date(), { weekday: "long", day: "numeric", month: "long" })}</p><h1 className="mt-1 text-2xl font-bold tracking-tight md:text-[30px]">Historia wizyt</h1></div><button onClick={() => setView("week")} className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm md:hidden">Kalendarz</button></div>}
-            {view === "history" ? <HistoryView appointments={appointments} onPick={setModal} /> : (
+            {view === "history" ? <HistoryView appointments={appointments} onPick={setModal} /> : view === "legend" ? <ServiceLegend /> : (
               <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_2px_10px_rgba(39,45,58,.03)]">
                 <CalendarToolbar selectedDate={selectedDate} view={view} setView={setView} go={changePeriod} onToday={() => setSelectedDate(new Date())} onNew={() => openNew()} />
                 <Calendar selectedDate={selectedDate} view={view} days={days} appointments={visibleAppointments} today={today} onNew={openNew} onPick={setModal} onMove={handleMove} />
@@ -377,6 +380,11 @@ function HistoryView({ appointments, onPick }: { appointments: Appointment[]; on
     return match && (timeFilter === "all" || (timeFilter === "past" ? past : !past));
   }).sort((a, b) => sort === "priceUp" ? a.price - b.price : sort === "priceDown" ? b.price - a.price : sort === "old" ? new Date(a.start_at).getTime() - new Date(b.start_at).getTime() : new Date(b.start_at).getTime() - new Date(a.start_at).getTime()), [appointments, query, timeFilter, sort]);
   return <div className="m-4 overflow-hidden rounded-2xl border border-slate-200 bg-white md:m-7"><div className="flex flex-wrap gap-2 border-b border-slate-200 p-4"><div className="relative min-w-[220px] flex-1"><Search size={16} className="absolute left-3 top-3 text-slate-400" /><input className="input pl-9" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Szukaj po kliencie, usłudze, telefonie…" /></div><select className="select" value={timeFilter} onChange={(event) => setTimeFilter(event.target.value)}><option value="all">Wszystkie wizyty</option><option value="past">Tylko przeszłe</option><option value="future">Tylko przyszłe</option></select><select className="select" value={sort} onChange={(event) => setSort(event.target.value)}><option value="new">Najnowsze</option><option value="old">Najstarsze</option><option value="priceUp">Cena rosnąco</option><option value="priceDown">Cena malejąco</option></select></div><div className="divide-y divide-slate-100">{rows.length ? rows.map((appointment) => <button key={appointment.id} onClick={() => onPick(appointment)} className="flex w-full items-center justify-between gap-4 px-4 py-4 text-left hover:bg-slate-50"><div><div className="font-semibold">{appointment.client_first_name} {appointment.client_last_name}</div><div className="mt-1 text-sm text-slate-500">{appointment.title} · {formatDate(appointment.start_at)} o {new Date(appointment.start_at).toLocaleTimeString("pl-PL", { hour: "2-digit", minute: "2-digit" })}</div></div><div className="font-semibold">{currency(appointment.price)}</div></button>) : <div className="p-10 text-center text-slate-500">Brak wyników.</div>}</div></div>;
+}
+
+function ServiceLegend() {
+  const groups = Array.from(new Set(services.map((service) => service.group)));
+  return <div className="p-4 md:p-7"><div className="mb-5"><p className="text-sm text-slate-500">Katalog usług</p><h1 className="mt-1 text-2xl font-bold tracking-tight md:text-[30px]">Legenda kolorów</h1><p className="mt-2 max-w-2xl text-sm text-slate-500">Kolory w kalendarzu odpowiadają rodzajom usług. Starsze, podobnie nazwane wizyty są dopasowywane automatycznie tylko wtedy, gdy wynik jest jednoznaczny.</p></div><div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{groups.map((group) => { const groupServices = services.filter((service) => service.group === group); const color = groupServices[0].color; return <section key={group} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_2px_10px_rgba(39,45,58,.03)]"><div className="flex items-center gap-3 border-b border-slate-100 px-4 py-3"><span className="h-4 w-4 rounded-full shadow-sm" style={{ background: color }} /><h2 className="font-bold">{group}</h2><span className="ml-auto text-xs text-slate-400">{groupServices.length} {groupServices.length === 1 ? "usługa" : "usługi"}</span></div><div className="divide-y divide-slate-100">{groupServices.map((service) => <div key={service.id} className="flex items-center justify-between gap-4 px-4 py-3"><div className="min-w-0"><span className="mr-2 text-xs font-semibold text-slate-300">{service.id}.</span><span className="text-sm font-medium text-slate-700">{service.title}</span></div><span className="shrink-0 text-sm font-semibold text-slate-600">{formatServicePrice(service)}</span></div>)}</div></section>; })}</div></div>;
 }
 
 function AppointmentModal({ initial, selectedDate, clients, onClose, onSave, onDelete }: { initial?: Appointment; selectedDate: Date; clients: Client[]; onClose: () => void; onSave: (appointment: Appointment) => Promise<void>; onDelete: (id: string) => Promise<void> }) {
