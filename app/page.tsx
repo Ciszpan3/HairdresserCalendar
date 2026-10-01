@@ -22,6 +22,7 @@ import { appointmentSchema, type AppointmentFormValues } from "@/lib/schemas";
 import { formatServicePrice, getServiceColor, normalizeSearch, services } from "@/lib/services";
 import { isSupabaseConfigured, supabase } from "@/lib/supabase";
 import { durationOptions, type Appointment, type Client } from "@/lib/types";
+import { parseAppointmentStart, serializeAppointmentStart } from "@/lib/datetime";
 
 type CalendarView = "week" | "day" | "month";
 type AppView = CalendarView | "history" | "legend";
@@ -34,11 +35,11 @@ const CALENDAR_SLOT_MINUTES = 15;
 const CALENDAR_HOUR_COUNT = CALENDAR_END_HOUR - CALENDAR_START_HOUR;
 const CALENDAR_HEIGHT = CALENDAR_HOUR_COUNT * CALENDAR_HOUR_HEIGHT;
 const isoDate = (date: Date) => `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
-const appointmentDate = (appointment: Appointment) => isoDate(new Date(appointment.start_at));
-const localStart = (date: string, time: string) => `${date}T${time}:00`;
+const appointmentDate = (appointment: Appointment) => isoDate(parseAppointmentStart(appointment.start_at));
+const localStart = serializeAppointmentStart;
 const currency = (value: number) => `${new Intl.NumberFormat("pl-PL", { maximumFractionDigits: 2 }).format(value)} zł`;
 const formatDate = (value: string | Date, options: Intl.DateTimeFormatOptions = { day: "2-digit", month: "2-digit", year: "numeric" }) =>
-  new Intl.DateTimeFormat("pl-PL", options).format(new Date(value));
+  new Intl.DateTimeFormat("pl-PL", options).format(typeof value === "string" ? parseAppointmentStart(value) : value);
 const normalizePhone = (value: string) => {
   const digits = value.replace(/\D/g, "");
   return digits.length === 11 && digits.startsWith("48") ? digits.slice(2) : digits;
@@ -114,7 +115,7 @@ export default function Home() {
   });
   const dayAppointments = appointments.filter((appointment) => appointmentDate(appointment) === isoDate(selectedDate));
   const weekAppointments = appointments.filter((appointment) => {
-    const start = new Date(appointment.start_at);
+    const start = parseAppointmentStart(appointment.start_at);
     return start >= days[0] && start < new Date(days[6].getTime() + 86_400_000);
   });
   const visibleAppointments = view === "day" ? dayAppointments : view === "week" ? weekAppointments : appointments;
@@ -216,7 +217,7 @@ export default function Home() {
         <div className="relative hidden w-[min(420px,35vw)] md:block">
           <Search size={17} className="absolute left-3 top-3 text-slate-400" />
           <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Szukaj wizyty, klienta…" className="h-10 w-full rounded-xl border border-slate-200 bg-slate-50 pl-10 pr-3 outline-none focus:border-[#8d83bd]" />
-          {textResults.length > 0 && <SearchDropdown results={textResults} onPick={(appointment) => { setSelectedDate(new Date(appointment.start_at)); setView("day"); setModal(appointment); setSearch(""); }} />}
+          {textResults.length > 0 && <SearchDropdown results={textResults} onPick={(appointment) => { setSelectedDate(parseAppointmentStart(appointment.start_at)); setView("day"); setModal(appointment); setSearch(""); }} />}
         </div>
         <div className="flex items-center gap-2">
           <button onClick={() => openNew()} className="flex h-10 items-center gap-2 rounded-xl bg-[#665c9a] px-4 text-sm font-semibold text-white shadow-sm hover:bg-[#51477f]"><Plus size={17} /><span className="hidden sm:inline">Nowa wizyta</span></button>
@@ -296,7 +297,7 @@ type AppointmentLayout = {
 };
 
 function appointmentMinutes(appointment: Appointment) {
-  const start = new Date(appointment.start_at);
+  const start = parseAppointmentStart(appointment.start_at);
   return start.getHours() * 60 + start.getMinutes();
 }
 
@@ -350,7 +351,7 @@ function DayColumn({ day, today, appointments, onNew, onPick }: { day: Date; tod
 }
 
 function AppointmentCard({ appointment, column, columnCount, groupId, group, activeGroup, onGroupFocus, onPick }: AppointmentLayout & { activeGroup: string | null; onGroupFocus: (groupId: string, x?: number, y?: number) => void; onPick: (appointment: Appointment) => void }) {
-  const start = new Date(appointment.start_at);
+  const start = parseAppointmentStart(appointment.start_at);
   const minutesFromStart = (start.getHours() - CALENDAR_START_HOUR) * 60 + start.getMinutes();
   const top = (minutesFromStart / 60) * CALENDAR_HOUR_HEIGHT;
   const dimmed = activeGroup !== null && activeGroup !== groupId;
@@ -360,14 +361,14 @@ function AppointmentCard({ appointment, column, columnCount, groupId, group, act
 
 function OverlapPanel({ appointments, position, onPick, onClose }: { appointments: Appointment[]; position: { x: number; y: number }; onPick: (appointment: Appointment) => void; onClose: () => void }) {
   const placeOnLeft = typeof window !== "undefined" && position.x > window.innerWidth - 330;
-  return <div className="overlap-panel fixed z-50 w-[300px] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl" style={{ top: Math.max(84, position.y - 36), left: placeOnLeft ? Math.max(12, position.x - 312) : position.x + 12 }} onClick={(event) => event.stopPropagation()}><div className="flex items-center justify-between border-b border-slate-100 px-3 py-2"><div><div className="text-sm font-bold">Równoczesne wizyty</div><div className="text-[11px] text-slate-500">Liczba wizyt: {appointments.length}</div></div><button type="button" aria-label="Zamknij panel" onClick={onClose} className="grid h-7 w-7 place-items-center rounded-md text-slate-400 hover:bg-slate-100"><X size={15} /></button></div><div className="max-h-72 overflow-y-auto p-1.5">{appointments.map((appointment) => { const start = new Date(appointment.start_at); const end = new Date(start.getTime() + appointment.duration_minutes * 60_000); return <button type="button" key={appointment.id} onClick={() => onPick(appointment)} className="block w-full rounded-lg p-2.5 text-left hover:bg-slate-50"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="truncate text-sm font-bold">{appointment.client_first_name} {appointment.client_last_name}</div><div className="truncate text-xs text-slate-600">{appointment.title}</div></div><div className="shrink-0 text-right"><div className="text-xs font-semibold">{start.toLocaleTimeString("pl-PL", { hour: "2-digit", minute: "2-digit" })}–{end.toLocaleTimeString("pl-PL", { hour: "2-digit", minute: "2-digit" })}</div><div className="mt-1 text-xs text-slate-500">{currency(appointment.price)}</div></div></div></button>; })}</div></div>;
+  return <div className="overlap-panel fixed z-50 w-[300px] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl" style={{ top: Math.max(84, position.y - 36), left: placeOnLeft ? Math.max(12, position.x - 312) : position.x + 12 }} onClick={(event) => event.stopPropagation()}><div className="flex items-center justify-between border-b border-slate-100 px-3 py-2"><div><div className="text-sm font-bold">Równoczesne wizyty</div><div className="text-[11px] text-slate-500">Liczba wizyt: {appointments.length}</div></div><button type="button" aria-label="Zamknij panel" onClick={onClose} className="grid h-7 w-7 place-items-center rounded-md text-slate-400 hover:bg-slate-100"><X size={15} /></button></div><div className="max-h-72 overflow-y-auto p-1.5">{appointments.map((appointment) => { const start = parseAppointmentStart(appointment.start_at); const end = new Date(start.getTime() + appointment.duration_minutes * 60_000); return <button type="button" key={appointment.id} onClick={() => onPick(appointment)} className="block w-full rounded-lg p-2.5 text-left hover:bg-slate-50"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="truncate text-sm font-bold">{appointment.client_first_name} {appointment.client_last_name}</div><div className="truncate text-xs text-slate-600">{appointment.title}</div></div><div className="shrink-0 text-right"><div className="text-xs font-semibold">{start.toLocaleTimeString("pl-PL", { hour: "2-digit", minute: "2-digit" })}–{end.toLocaleTimeString("pl-PL", { hour: "2-digit", minute: "2-digit" })}</div><div className="mt-1 text-xs text-slate-500">{currency(appointment.price)}</div></div></div></button>; })}</div></div>;
 }
 
 function Month({ appointments, selectedDate, onPick, onNew }: { appointments: Appointment[]; selectedDate: Date; onPick: (appointment: Appointment) => void; onNew: (date?: string, time?: string) => void }) {
   const first = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1);
   const start = new Date(first);
   start.setDate(1 - ((first.getDay() + 6) % 7));
-  return <div className="calendar-scroll h-[calc(100vh-145px)] overflow-auto"><div className="grid min-w-[720px] grid-cols-7 gap-px bg-slate-100 p-3">{["Pon", "Wt", "Śr", "Czw", "Pt", "Sob", "Nd"].map((label) => <div key={label} className="bg-white p-2 text-xs font-bold text-slate-400">{label}</div>)}{Array.from({ length: 42 }, (_, index) => { const day = new Date(start); day.setDate(start.getDate() + index); const date = isoDate(day); const items = appointments.filter((appointment) => appointmentDate(appointment) === date); return <div key={date} role="button" tabIndex={0} aria-label={`Dodaj wizytę: ${formatDate(day)}`} onClick={() => onNew(date, "09:00")} onKeyDown={(event) => { if (event.currentTarget !== event.target) return; if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onNew(date, "09:00"); } }} className={`min-h-[112px] cursor-pointer bg-white p-2 outline-none hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#8d83bd] ${day.getMonth() !== selectedDate.getMonth() ? "opacity-40" : ""}`}><div className="text-sm font-semibold">{day.getDate()}</div>{items.map((appointment) => <button onClick={(event) => { event.stopPropagation(); onPick(appointment); }} key={appointment.id} className="mt-1 block w-full truncate rounded-md px-1.5 py-1 text-left text-[11px] text-white" style={{ background: getServiceColor(appointment.title) }}>{new Date(appointment.start_at).toLocaleTimeString("pl-PL", { hour: "2-digit", minute: "2-digit" })} {appointment.client_first_name}</button>)}</div>; })}</div></div>;
+  return <div className="calendar-scroll h-[calc(100vh-145px)] overflow-auto"><div className="grid min-w-[720px] grid-cols-7 gap-px bg-slate-100 p-3">{["Pon", "Wt", "Śr", "Czw", "Pt", "Sob", "Nd"].map((label) => <div key={label} className="bg-white p-2 text-xs font-bold text-slate-400">{label}</div>)}{Array.from({ length: 42 }, (_, index) => { const day = new Date(start); day.setDate(start.getDate() + index); const date = isoDate(day); const items = appointments.filter((appointment) => appointmentDate(appointment) === date); return <div key={date} role="button" tabIndex={0} aria-label={`Dodaj wizytę: ${formatDate(day)}`} onClick={() => onNew(date, "09:00")} onKeyDown={(event) => { if (event.currentTarget !== event.target) return; if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onNew(date, "09:00"); } }} className={`min-h-[112px] cursor-pointer bg-white p-2 outline-none hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#8d83bd] ${day.getMonth() !== selectedDate.getMonth() ? "opacity-40" : ""}`}><div className="text-sm font-semibold">{day.getDate()}</div>{items.map((appointment) => <button onClick={(event) => { event.stopPropagation(); onPick(appointment); }} key={appointment.id} className="mt-1 block w-full truncate rounded-md px-1.5 py-1 text-left text-[11px] text-white" style={{ background: getServiceColor(appointment.title) }}>{parseAppointmentStart(appointment.start_at).toLocaleTimeString("pl-PL", { hour: "2-digit", minute: "2-digit" })} {appointment.client_first_name}</button>)}</div>; })}</div></div>;
 }
 
 function SearchDropdown({ results, onPick }: { results: Appointment[]; onPick: (appointment: Appointment) => void }) {
@@ -380,10 +381,10 @@ function HistoryView({ appointments, onPick }: { appointments: Appointment[]; on
   const [sort, setSort] = useState("new");
   const rows = useMemo(() => appointments.filter((appointment) => {
     const match = normalizeSearch(`${appointment.client_first_name} ${appointment.client_last_name} ${appointment.title} ${appointment.phone ?? ""} ${appointment.notes ?? ""}`).includes(normalizeSearch(query));
-    const past = new Date(appointment.start_at) < new Date();
+    const past = parseAppointmentStart(appointment.start_at) < new Date();
     return match && (timeFilter === "all" || (timeFilter === "past" ? past : !past));
-  }).sort((a, b) => sort === "priceUp" ? a.price - b.price : sort === "priceDown" ? b.price - a.price : sort === "old" ? new Date(a.start_at).getTime() - new Date(b.start_at).getTime() : new Date(b.start_at).getTime() - new Date(a.start_at).getTime()), [appointments, query, timeFilter, sort]);
-  return <div className="m-4 overflow-hidden rounded-2xl border border-slate-200 bg-white md:m-7"><div className="flex flex-wrap gap-2 border-b border-slate-200 p-4"><div className="relative min-w-[220px] flex-1"><Search size={16} className="absolute left-3 top-3 text-slate-400" /><input className="input pl-9" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Szukaj po kliencie, usłudze, telefonie…" /></div><select className="select" value={timeFilter} onChange={(event) => setTimeFilter(event.target.value)}><option value="all">Wszystkie wizyty</option><option value="past">Tylko przeszłe</option><option value="future">Tylko przyszłe</option></select><select className="select" value={sort} onChange={(event) => setSort(event.target.value)}><option value="new">Najnowsze</option><option value="old">Najstarsze</option><option value="priceUp">Cena rosnąco</option><option value="priceDown">Cena malejąco</option></select></div><div className="divide-y divide-slate-100">{rows.length ? rows.map((appointment) => <button key={appointment.id} onClick={() => onPick(appointment)} className="flex w-full items-center justify-between gap-4 px-4 py-4 text-left hover:bg-slate-50"><div><div className="font-semibold">{appointment.client_first_name} {appointment.client_last_name}</div><div className="mt-1 text-sm text-slate-500">{appointment.title} · {formatDate(appointment.start_at)} o {new Date(appointment.start_at).toLocaleTimeString("pl-PL", { hour: "2-digit", minute: "2-digit" })}</div></div><div className="font-semibold">{currency(appointment.price)}</div></button>) : <div className="p-10 text-center text-slate-500">Brak wyników.</div>}</div></div>;
+  }).sort((a, b) => sort === "priceUp" ? a.price - b.price : sort === "priceDown" ? b.price - a.price : sort === "old" ? parseAppointmentStart(a.start_at).getTime() - parseAppointmentStart(b.start_at).getTime() : parseAppointmentStart(b.start_at).getTime() - parseAppointmentStart(a.start_at).getTime()), [appointments, query, timeFilter, sort]);
+  return <div className="m-4 overflow-hidden rounded-2xl border border-slate-200 bg-white md:m-7"><div className="flex flex-wrap gap-2 border-b border-slate-200 p-4"><div className="relative min-w-[220px] flex-1"><Search size={16} className="absolute left-3 top-3 text-slate-400" /><input className="input pl-9" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Szukaj po kliencie, usłudze, telefonie…" /></div><select className="select" value={timeFilter} onChange={(event) => setTimeFilter(event.target.value)}><option value="all">Wszystkie wizyty</option><option value="past">Tylko przeszłe</option><option value="future">Tylko przyszłe</option></select><select className="select" value={sort} onChange={(event) => setSort(event.target.value)}><option value="new">Najnowsze</option><option value="old">Najstarsze</option><option value="priceUp">Cena rosnąco</option><option value="priceDown">Cena malejąco</option></select></div><div className="divide-y divide-slate-100">{rows.length ? rows.map((appointment) => <button key={appointment.id} onClick={() => onPick(appointment)} className="flex w-full items-center justify-between gap-4 px-4 py-4 text-left hover:bg-slate-50"><div><div className="font-semibold">{appointment.client_first_name} {appointment.client_last_name}</div><div className="mt-1 text-sm text-slate-500">{appointment.title} · {formatDate(appointment.start_at)} o {parseAppointmentStart(appointment.start_at).toLocaleTimeString("pl-PL", { hour: "2-digit", minute: "2-digit" })}</div></div><div className="font-semibold">{currency(appointment.price)}</div></button>) : <div className="p-10 text-center text-slate-500">Brak wyników.</div>}</div></div>;
 }
 
 function ServiceLegend() {
@@ -393,7 +394,7 @@ function ServiceLegend() {
 
 function AppointmentModal({ initial, selectedDate, clients, onClose, onSave, onDelete }: { initial?: Appointment; selectedDate: Date; clients: Client[]; onClose: () => void; onSave: (appointment: Appointment) => Promise<void>; onDelete: (id: string) => Promise<void> }) {
   const isEdit = Boolean(initial?.id);
-  const start = initial?.start_at ? new Date(initial.start_at) : new Date();
+  const start = initial?.start_at ? parseAppointmentStart(initial.start_at) : new Date();
   const totalDuration = initial?.duration_minutes ?? 60;
   const [serviceOpen, setServiceOpen] = useState(false);
   const [clientOpen, setClientOpen] = useState(false);
