@@ -47,11 +47,45 @@ export const services: ServiceDefinition[] = [
 ];
 
 export const normalizeSearch = (value: string) =>
-  value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("pl-PL").trim();
+  value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLocaleLowerCase("pl-PL")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const legacyColorRules: Array<{ color: string; matches: (title: string) => boolean }> = [
+  { color: colors.black, matches: (title) => /przedluz|zageszcz/.test(title) },
+  { color: colors.green, matches: (title) => /trycholog/.test(title) },
+  { color: colors.yellow, matches: (title) => /botox|botoks|lamin|regener|keratyn|peeling|pielegn/.test(title) },
+  { color: colors.orange, matches: (title) => /farbow|koloryz|\bkolor\b|pasem|ombre|sombre|air ?touch|balayage|baleyage|balejaz|balajaz|dekoloryz/.test(title) },
+  { color: colors.blue, matches: (title) => /brod/.test(title) || (/strzyz/.test(title) && /mesk|panow|meskie/.test(title)) },
+  { color: colors.purple, matches: (title) => /strzyz/.test(title) && /damsk|wysusz|suszen|modelow/.test(title) },
+  { color: colors.pink, matches: (title) => /modelow|loki?|fale?|spiral|upiec|slubn|weseln|okoliczn/.test(title) },
+  { color: colors.red, matches: (title) => /trwal|styling/.test(title) },
+];
+
+const colorCache = new Map<string, string>();
 
 export const getServiceColor = (title: string) => {
   const normalized = normalizeSearch(title);
-  return services.find((service) => normalizeSearch(service.title) === normalized)?.color ?? "#51477f";
+  const cached = colorCache.get(normalized);
+  if (cached) return cached;
+
+  const exact = services.find((service) => normalizeSearch(service.title) === normalized);
+  const partialMatches = normalized.length >= 4
+    ? services.filter((service) => {
+      const serviceTitle = normalizeSearch(service.title);
+      return serviceTitle.includes(normalized) || normalized.includes(serviceTitle);
+    })
+    : [];
+  const partialColors = new Set(partialMatches.map((service) => service.color));
+  const partialColor = partialColors.size === 1 ? partialMatches[0]?.color : undefined;
+  const legacy = legacyColorRules.find((rule) => rule.matches(normalized));
+  const color = exact?.color ?? partialColor ?? legacy?.color ?? "#51477f";
+  colorCache.set(normalized, color);
+  return color;
 };
 
 export const formatServicePrice = (service: ServiceDefinition) =>
